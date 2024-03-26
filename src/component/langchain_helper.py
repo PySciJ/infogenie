@@ -10,7 +10,7 @@ from langchain.prompts import FewShotPromptTemplate
 from langchain.chains.sql_database.prompt import PROMPT_SUFFIX, _mysql_prompt
 from langchain.prompts.prompt import PromptTemplate
 
-from src.few_shots import few_shots
+from src.component.few_shots import few_shots
 
 import os
 from dotenv import load_dotenv
@@ -70,10 +70,5 @@ def get_few_shot_db_chain():
     )
     chain = SQLDatabaseChain.from_llm(llm, db, verbose=True, prompt=few_shot_prompt)
     return chain
-
-
-
-if __name__=="__main__":
-   pass
 
     
