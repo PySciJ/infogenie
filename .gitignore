@@ -25,6 +25,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+python_magic_bin-0.4.14-py2.py3-none-win_amd64.whl
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
