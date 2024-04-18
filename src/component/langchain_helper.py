@@ -12,6 +12,9 @@ from langchain.prompts.prompt import PromptTemplate
 
 from src.component.few_shots import few_shots
 
+import google.generativeai as genai
+from youtube_transcript_api import YouTubeTranscriptApi
+
 import os
 from dotenv import load_dotenv
 
@@ -71,4 +74,5 @@ def get_few_shot_db_chain():
     chain = SQLDatabaseChain.from_llm(llm, db, verbose=True, prompt=few_shot_prompt)
     return chain
 
-    
+
+
