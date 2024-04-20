@@ -28,5 +28,4 @@ youtube-transcript-api
 pathlib
 sentence-transformers==2.2.2
 unstructured==0.12.2
-python_magic_bin-0.4.14-py2.py3-none-win_amd64.whl
 InstructorEmbedding
