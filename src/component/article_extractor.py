@@ -1,52 +1,112 @@
 import pickle
 import time
-
-from langchain.llms import GooglePalm
-from langchain.embeddings import HuggingFaceInstructEmbeddings
-from langchain.vectorstores import FAISS
-from langchain.document_loaders import UnstructuredURLLoader
+import pandas as pd
+from langchain_community.embeddings import HuggingFaceInstructEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_community.document_loaders import UnstructuredURLLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import RetrievalQA
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain.chains import LLMchain
+from langchain.chains import ConversationalRetrievalChain
+from langchain_google_vertexai import ChatVertexAI
+from langchain.memory import ConversationBufferMemory
+from langchain_google_genai import ChatGoogleGenerativeAI
 
+
+import streamlit as st
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
 
 #Load URLS
-def load_url():
+def load_url(urls):
     loader = UnstructuredURLLoader(urls=urls)
     docs = loader.load()
+    return docs
 
-def split_docs():
+def split_docs(docs):
     r_splitter = RecursiveCharacterTextSplitter(
         separators=["\n\n", "\n", ",", "."],
-        chunk_size=1000,
-        chunk_overlap=0
+        chunk_size=2000,
+        chunk_overlap=500
     )
     chunks = r_splitter.split_documents(docs)
+    
+    return chunks
 
-def create_and_save_vector_db():
-    embeddings = HuggingFaceInstructEmbeddings()
-    vector_db = FAISS.from_documents(documents=chunks, embedding=embeddings)
-    time.sleep(2)
-    with open(file_path, "wb") as f:
+def create_save_return_vector_store(chunks):
+    vectordb_file_path = "faiss_index_hf.pkl"
+    instructor_embeddings = HuggingFaceInstructEmbeddings()
+    vector_db = FAISS.from_documents(documents=chunks, embedding=instructor_embeddings)
+    time.sleep(1)
+    with open(vectordb_file_path, "wb") as f:
         pickle.dump(vector_db, f)
+    # vector_db.save_local(vectordb_file_path)
+    with open(vectordb_file_path, "rb") as f:
+        vector_store = pickle.load(f)
+        
+    return vector_store
+    
 
-def get_qa():
-    if os.path.exists(file_path):
-        with open(file_path, "rb") as f:
-            vector_store = pickle.load(f)
-            chain = RetrievalQA.from_chain_type(
-                llm=google_palm_llm,
-                chain_type="stuff",
-                input_key="query",
-                retriever=vector_store.as_retriever(),
-                return_source_documents=True
-            )
-            answer = chain({'query': Question})
+            
+def get_context_retriever_chain(vector_store): # Retrieves relevant documents to chat_history and current user question
+    # chat_model = ChatVertexAI(model="text-bison@001", google_api_key=os.getenv("GOOGLE_API_KEY"))
+    chat_model = ChatGoogleGenerativeAI(model="gemini-pro", convert_system_message_to_human=True)
+    
+    # memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+    # vectordb_file_path = "faiss_index_hf.pkl"
+    # # instructor_embeddings = HuggingFaceInstructEmbeddings()
+    # # vector_store = FAISS.load_local(vectordb_file_path, instructor_embeddings, allow_dangerous_deserialization=True)
+    
+    # conversation_chain = ConversationalRetrievalChain.from_llm(
+    #     llm=chat_model,
+    #     retriever=vector_store.as_retriever(search_type="mmr"),
+    #     memory=memory
+    # )
+    # return conversation_chain
+    
+    prompt = ChatPromptTemplate.from_messages([
+        MessagesPlaceholder(variable_name="chat_history_fi"),
+        ("user", "{input}"),
+        ("user", "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation")
+    ])
+    retriever_chain = create_history_aware_retriever(chat_model, vector_store.as_retriever(), prompt)
+    
+    return retriever_chain
 
-
-
+def get_conversational_rag_chain(retriever_chain):
+    chat_model = ChatGoogleGenerativeAI(model="gemini-pro", convert_system_message_to_human=True)
+    
+    # SystemMessage: Message for priming AI behavior, usually passed in as the first of a sequence of input messages.
+    prompt = ChatPromptTemplate.from_messages([
+      ("system", "Answer the user's questions based on the below context:\n\n{context}"),
+      MessagesPlaceholder(variable_name="chat_history_fi"),
+      ("user", "{input}"),
+    ])
+    
+    stuff_documents_chain = create_stuff_documents_chain(chat_model, prompt) # Create a chain that includes the context(relevant documents)
+    
+    return create_retrieval_chain(retriever_chain, stuff_documents_chain)
+    
+def handle_userinput(user_query):
+    
+    retriever_chain = get_context_retriever_chain(st.session_state.vector_store_fi)
+    conversation_rag_chain = get_conversational_rag_chain(retriever_chain)
+    
+    response = conversation_rag_chain.invoke({
+        "chat_history_fi": st.session_state.chat_history_fi,
+        "input": user_query
+    })
+    
+    return response['answer']
+  
 def store_to_df(store):
     v_dict = store.docstore._dict
     data_rows = []
@@ -64,8 +124,9 @@ def store_to_df(store):
 
 
 def refresh_chain(new_store):
+    chat_model = ChatVertexAI(model="text-bison@001", google_api_key=os.getenv("GOOGLE_API_KEY"))
     chain = RetrievalQA.from_chain_type(
-        llm=google_palm_llm,
+        llm=chat_model,
         chain_type="stuff",
         input_key='query',
         retriever=new_store.as_retriever(),
