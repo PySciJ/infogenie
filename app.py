@@ -7,10 +7,15 @@ from src.component.chat import get_response
 from langchain_core.messages import HumanMessage, AIMessage
 from src.component.article_extractor import (load_url, 
                                              split_docs, 
-                                             create_save_return_vector_store, 
+                                             create_save_return_vector_store,
+                                             merge_save_return_vector_store, 
                                              handle_userinput,
                                              populate_vector_store,
-                                             display_vector_store)
+                                             display_vector_store,
+                                             get_context_retriever_chain,
+                                             get_conversational_rag_chain,
+                                             stream_userinput)
+
 
 st.set_page_config(page_title="InfoGenie", page_icon="👀")
 
@@ -69,28 +74,30 @@ if tab == "FinInsights":
     
     print(st.session_state)
         
-    if "urls" not in st.session_state:
+    if "urls" not in st.session_state:# Temp url list as inputs to load_url()
         st.session_state.urls = []
+    
+    if "urls_history" not in st.session_state:# This is to track the urls in the vectordb
+        st.session_state.urls_history = []
         
     if "chat_history_fi" not in st.session_state:
         st.session_state.chat_history_fi = []
     
-    if "display_vector_store" not in st.session_state:
-        st.session_state.display_vector_store = []
-    
-    
+    if "vector_store_fi" not in st.session_state:
+        st.session_state.vector_store_fi = []
+
         
     print(st.session_state)
     if add_url:
-        if url:
+        if url and url not in st.session_state.urls_history:
             st.session_state.urls.append(url)
-            with st.popover("Show Urls"):
-                st.markdown(st.session_state.urls)
-            print(st.session_state)       
+            st.session_state.urls_history.append(url)
+        with st.popover("Show Urls"):
+            st.markdown(st.session_state.urls)
+        print(st.session_state)       
             
     
     if process_url_clicked:
-        
         with st.status("Processing URLs...", expanded=True) as status:
             
             #Load data
@@ -103,33 +110,42 @@ if tab == "FinInsights":
             
             #Create embeddings for chunks and store in vectorDB(FAISS, Chroma)
             st.write("Embedding Vector Started Building...✅✅✅")
-            if "vector_store_fi" not in st.session_state:
-                st.session_state.vector_store_fi = create_save_return_vector_store(chunks)     
             
-            status.update(label="Processing Completed!", state="complete",expanded=False)
+            if not st.session_state.vector_store_fi: #Check if empty and initialize for the first time
+                st.session_state.vector_store_fi = create_save_return_vector_store(chunks)
+                
+            
+            else: # vector_store_fi already exist, merge new documents
+                st.write("Updating Vector Database...✅✅✅")
+                st.session_state.vector_store_fi = merge_save_return_vector_store(chunks, st.session_state.vector_store_fi)
+                    
+                
+            status.update(label="Processing Completed!", state="complete", expanded=False)
             
             #Check if st.session_state.chat_history_fi = [] empty list
-            if not st.session_state.chat_history_fi:
-                st.session_state.chat_history_fi = [
-                    AIMessage(content="Hello, I am a bot. How can I help you?"),
-                ]
+            # if not st.session_state.chat_history_fi:
+            #     st.session_state.chat_history_fi = [
+            #         AIMessage(content="Hello, I am a bot. How can I help you?"),
+            #     ]
             
-            if not st.session_state.display_vector_store:
-                st.session_state.display_vector_store = [1]
-        
-    if len(st.session_state.display_vector_store) == 1:
+            
+            st.session_state.urls = [] # Clear temp urls list after vector_store has been initialized
+
+            print(st.session_state)
+            
+    if not isinstance(st.session_state.vector_store_fi, list): # If vector_store is not empty
         store_df = populate_vector_store(st.session_state.vector_store_fi)
         display_vector_store(store_df)
-                             
+                        
     for message in st.session_state.chat_history_fi:
         if isinstance(message, AIMessage):
-            with st.chat_message("AI"):
-                st.markdown(message.content)
+            with st.chat_message("AI", avatar="🤖"):
+                st.write(message.content)
         elif isinstance(message, HumanMessage):
-            with st.chat_message("Human"):
-                st.markdown(message.content)
-                     
-
+            with st.chat_message("Human", avatar="🤗"):
+                st.write(message.content)        
+                        
+                        
     user_query = st.chat_input("Type your message here...")
     if user_query is not None and user_query != "":
         if len(st.session_state.chat_history_fi) == 1:
@@ -137,30 +153,22 @@ if tab == "FinInsights":
             
         response = handle_userinput(user_query)
         st.session_state.chat_history_fi.append(HumanMessage(content=user_query))
-        # with st.chat_message("Human"):
-        #         st.markdown(user_query)
-        # with st.chat_message("AI"):
-        #         st.markdown(response)
         st.session_state.chat_history_fi.append(AIMessage(content=response))
-
-                    
-    # if show_vector_db_clicked:
-    #     v_dict = st.session_state.vector_store_fi.docstore._dict
-    #     #v_dict = {"aab6aebf-3db4": "Document(page_content="Skip Navigation..", metadata={'source': 'www.xyz.com'})"}
         
-    #     data_rows = []
-    #     doc_set = set()
-    #     for chunk_id in v_dict.keys():
-    #         doc_name = v_dict[chunk_id].metadata["source"]
-    #         doc_set.add(doc_name)
-    #     for url in doc_set:
-    #         data_rows.append({"documents": url})
-    #         #data_rows.append({"chunk_id": chunk_id, "document": doc_name})
-    #     vector_store_fi_df = pd.DataFrame(data_rows)
-    #     vector_store_fi_df.index += 1
-    #     display_vector_store(vector_store_fi_df)
-            
-   
+        with st.chat_message("Human", avatar="🤗"):
+            st.markdown(user_query)
+         
+        with st.chat_message("AI", avatar="🤖"):
+            st.write_stream(stream_userinput(response))
+    
+    
+        print(st.session_state)
+    
+                
+
+    
+
+
 
 if tab == "ClipNotes":
     st.title("ClipNotes 🎞")

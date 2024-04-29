@@ -12,7 +12,7 @@ from langchain.chains import ConversationalRetrievalChain
 from langchain_google_vertexai import ChatVertexAI
 from langchain.memory import ConversationBufferMemory
 from langchain_google_genai import ChatGoogleGenerativeAI
-
+import tiktoken
 
 import streamlit as st
 from langchain_core.messages import HumanMessage, AIMessage
@@ -44,17 +44,31 @@ def split_docs(docs):
 def create_save_return_vector_store(chunks):
     vectordb_file_path = "faiss_index_hf.pkl"
     instructor_embeddings = HuggingFaceInstructEmbeddings()
-    vector_db = FAISS.from_documents(documents=chunks, embedding=instructor_embeddings)
+    vector_store = FAISS.from_documents(documents=chunks, embedding=instructor_embeddings)
     time.sleep(1)
-    with open(vectordb_file_path, "wb") as f:
-        pickle.dump(vector_db, f)
-    # vector_db.save_local(vectordb_file_path)
-    with open(vectordb_file_path, "rb") as f:
-        vector_store = pickle.load(f)
-        
-    return vector_store
+    # with open(vectordb_file_path, "wb") as f:
+    #     pickle.dump(vector_db, f)
+    # with open(vectordb_file_path, "rb") as f:
+    #     vector_store = pickle.load(f)
     
+    vector_store.save_local(vectordb_file_path)     
+    return vector_store
 
+def merge_save_return_vector_store(chunks, vector_store):
+    vectordb_file_path = "faiss_index_hf.pkl"
+    instructor_embeddings = HuggingFaceInstructEmbeddings()
+    extension_db = FAISS.from_documents(documents=chunks, embedding=instructor_embeddings)
+    time.sleep(1)
+    vector_store.merge_from(extension_db)
+    
+    # with open(vectordb_file_path, "wb") as f: # Overwrite embeddings pickle file
+    #     pickle.dump(existing_vector_store, f)
+    
+    # with open(vectordb_file_path, "rb") as f:
+    #     vector_store = pickle.load(f)
+    vector_store.save_local(vectordb_file_path)
+    
+    return vector_store
             
 def get_context_retriever_chain(vector_store): # Retrieves relevant documents to chat_history and current user question
     # chat_model = ChatVertexAI(model="text-bison@001", google_api_key=os.getenv("GOOGLE_API_KEY"))
@@ -81,6 +95,7 @@ def get_context_retriever_chain(vector_store): # Retrieves relevant documents to
     
     return retriever_chain
 
+
 def get_conversational_rag_chain(retriever_chain):
     chat_model = ChatGoogleGenerativeAI(model="gemini-pro", convert_system_message_to_human=True)
     
@@ -93,9 +108,9 @@ def get_conversational_rag_chain(retriever_chain):
     
     stuff_documents_chain = create_stuff_documents_chain(chat_model, prompt) # Create a chain that includes the context(relevant documents)
     
-    
     return create_retrieval_chain(retriever_chain, stuff_documents_chain)
-    
+
+
 def handle_userinput(user_query):
     
     retriever_chain = get_context_retriever_chain(st.session_state.vector_store_fi)
@@ -107,6 +122,13 @@ def handle_userinput(user_query):
     })
     
     return response['answer']
+
+def stream_userinput(response):
+    for word in response.split(" "):
+        yield word + " "
+        time.sleep(0.02)
+
+
 
 def populate_vector_store(vector_store_fi):
     v_dict = vector_store_fi.docstore._dict
@@ -124,34 +146,8 @@ def populate_vector_store(vector_store_fi):
     vector_store_fi_df.index += 1
     return vector_store_fi_df
     
+    
 def display_vector_store(store_df):
     with st.expander("Documents Database"):
         st.write(store_df)
         
-
-def store_to_df(store):
-    v_dict = store.docstore._dict
-    data_rows = []
-    doc_set = set()
-    for chunk_id in v_dict.keys():
-        doc_name = v_dict[chunk_id].metadata["source"]
-        #content = v_dict[chunk_id].page_content
-        doc_set.add(doc_name)
-        #data_rows.append({"document": doc_name})
-    for url in doc_set:
-        data_rows.append({"documents": url})
-    vector_df = pd.DataFrame(data_rows)
-    vector_df.index += 1
-    return vector_df
-
-
-def refresh_chain(new_store):
-    chat_model = ChatVertexAI(model="text-bison@001", google_api_key=os.getenv("GOOGLE_API_KEY"))
-    chain = RetrievalQA.from_chain_type(
-        llm=chat_model,
-        chain_type="stuff",
-        input_key='query',
-        retriever=new_store.as_retriever(),
-        return_source_documents=True
-    )
-    return chain
