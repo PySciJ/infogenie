@@ -1,9 +1,16 @@
 import streamlit as st
+import pandas as pd
+import time
 from src.component.sql_querier import get_few_shot_db_chain 
 from src.component.video_summarizer import extract_transcript_details, google_gemini_text_summarization
 from src.component.chat import get_response
 from langchain_core.messages import HumanMessage, AIMessage
-from src.component.article_extractor import load_url, split_docs, create_save_return_vector_store, handle_userinput
+from src.component.article_extractor import (load_url, 
+                                             split_docs, 
+                                             create_save_return_vector_store, 
+                                             handle_userinput,
+                                             populate_vector_store,
+                                             display_vector_store)
 
 st.set_page_config(page_title="InfoGenie", page_icon="👀")
 
@@ -59,30 +66,31 @@ if tab == "InfoGenie":
 
 if tab == "FinInsights":
     st.title("FinInsights 📈")
-    # main_placeholder = st.empty()
+    
     print(st.session_state)
         
     if "urls" not in st.session_state:
         st.session_state.urls = []
+        
+    if "chat_history_fi" not in st.session_state:
+        st.session_state.chat_history_fi = []
+    
+    if "display_vector_store" not in st.session_state:
+        st.session_state.display_vector_store = []
+    
+    
+        
     print(st.session_state)
     if add_url:
         if url:
             st.session_state.urls.append(url)
             with st.popover("Show Urls"):
                 st.markdown(st.session_state.urls)
-            print(st.session_state)        
-    # user_question = st.text_input("Question about your articles")
-    # if user_question:
-    #     if st.session_state.conversation is None:
-    #         st.session_state.conversation = get_conversation_chain()
-
-    #     response = st.session_state.conversation({'question': user_question})
-    #     st.write(response)
-    #     st.session_state.chat_history = response['chat_history']
-
-
+            print(st.session_state)       
+            
     
     if process_url_clicked:
+        
         with st.status("Processing URLs...", expanded=True) as status:
             
             #Load data
@@ -99,19 +107,27 @@ if tab == "FinInsights":
                 st.session_state.vector_store_fi = create_save_return_vector_store(chunks)     
             
             status.update(label="Processing Completed!", state="complete",expanded=False)
-
-            if "chat_history_fi" not in st.session_state:
+            
+            #Check if st.session_state.chat_history_fi = [] empty list
+            if not st.session_state.chat_history_fi:
                 st.session_state.chat_history_fi = [
                     AIMessage(content="Hello, I am a bot. How can I help you?"),
                 ]
+            
+            if not st.session_state.display_vector_store:
+                st.session_state.display_vector_store = [1]
+        
+    if len(st.session_state.display_vector_store) == 1:
+        store_df = populate_vector_store(st.session_state.vector_store_fi)
+        display_vector_store(store_df)
                              
-        for message in st.session_state.chat_history_fi:
-            if isinstance(message, AIMessage):
-                with st.chat_message("AI"):
-                    st.markdown(message.content)
-            elif isinstance(message, HumanMessage):
-                with st.chat_message("Human"):
-                    st.markdown(message.content)
+    for message in st.session_state.chat_history_fi:
+        if isinstance(message, AIMessage):
+            with st.chat_message("AI"):
+                st.markdown(message.content)
+        elif isinstance(message, HumanMessage):
+            with st.chat_message("Human"):
+                st.markdown(message.content)
                      
 
     user_query = st.chat_input("Type your message here...")
@@ -119,17 +135,31 @@ if tab == "FinInsights":
         if len(st.session_state.chat_history_fi) == 1:
             st.session_state.chat_history_fi.pop()
             
-        response = handle_userinput(user_query)   
+        response = handle_userinput(user_query)
         st.session_state.chat_history_fi.append(HumanMessage(content=user_query))
+        # with st.chat_message("Human"):
+        #         st.markdown(user_query)
+        # with st.chat_message("AI"):
+        #         st.markdown(response)
         st.session_state.chat_history_fi.append(AIMessage(content=response))
+
+                    
+    # if show_vector_db_clicked:
+    #     v_dict = st.session_state.vector_store_fi.docstore._dict
+    #     #v_dict = {"aab6aebf-3db4": "Document(page_content="Skip Navigation..", metadata={'source': 'www.xyz.com'})"}
+        
+    #     data_rows = []
+    #     doc_set = set()
+    #     for chunk_id in v_dict.keys():
+    #         doc_name = v_dict[chunk_id].metadata["source"]
+    #         doc_set.add(doc_name)
+    #     for url in doc_set:
+    #         data_rows.append({"documents": url})
+    #         #data_rows.append({"chunk_id": chunk_id, "document": doc_name})
+    #     vector_store_fi_df = pd.DataFrame(data_rows)
+    #     vector_store_fi_df.index += 1
+    #     display_vector_store(vector_store_fi_df)
             
-        for message in st.session_state.chat_history_fi:
-            if isinstance(message, AIMessage):
-                with st.chat_message("AI"):
-                    st.write(message.content)
-            elif isinstance(message, HumanMessage):
-                with st.chat_message("Human"):
-                    st.write(message.content) 
    
 
 if tab == "ClipNotes":

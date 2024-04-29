@@ -93,6 +93,7 @@ def get_conversational_rag_chain(retriever_chain):
     
     stuff_documents_chain = create_stuff_documents_chain(chat_model, prompt) # Create a chain that includes the context(relevant documents)
     
+    
     return create_retrieval_chain(retriever_chain, stuff_documents_chain)
     
 def handle_userinput(user_query):
@@ -106,7 +107,28 @@ def handle_userinput(user_query):
     })
     
     return response['answer']
-  
+
+def populate_vector_store(vector_store_fi):
+    v_dict = vector_store_fi.docstore._dict
+    #v_dict = {"aab6aebf-3db4": "Document(page_content="Skip Navigation..", metadata={'source': 'www.xyz.com'})"}
+    
+    data_rows = []
+    doc_set = set()
+    for chunk_id in v_dict.keys():
+        doc_name = v_dict[chunk_id].metadata["source"]
+        doc_set.add(doc_name)
+    for url in doc_set:
+        data_rows.append({"documents": url})
+        #data_rows.append({"chunk_id": chunk_id, "document": doc_name})
+    vector_store_fi_df = pd.DataFrame(data_rows)
+    vector_store_fi_df.index += 1
+    return vector_store_fi_df
+    
+def display_vector_store(store_df):
+    with st.expander("Documents Database"):
+        st.write(store_df)
+        
+
 def store_to_df(store):
     v_dict = store.docstore._dict
     data_rows = []
