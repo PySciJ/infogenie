@@ -34,8 +34,8 @@ def load_url(urls):
 def split_docs(docs):
     r_splitter = RecursiveCharacterTextSplitter(
         separators=["\n\n", "\n", ",", "."],
-        chunk_size=2000,
-        chunk_overlap=500
+        chunk_size=1000,
+        chunk_overlap=200
     )
     chunks = r_splitter.split_documents(docs)
     
@@ -91,7 +91,7 @@ def get_context_retriever_chain(vector_store): # Retrieves relevant documents to
         ("user", "{input}"),
         ("user", "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation")
     ])
-    retriever_chain = create_history_aware_retriever(chat_model, vector_store.as_retriever(), prompt)
+    retriever_chain = create_history_aware_retriever(chat_model, vector_store.as_retriever(search_type="mmr"), prompt)
     
     return retriever_chain
 

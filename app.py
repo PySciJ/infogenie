@@ -12,8 +12,6 @@ from src.component.article_extractor import (load_url,
                                              handle_userinput,
                                              populate_vector_store,
                                              display_vector_store,
-                                             get_context_retriever_chain,
-                                             get_conversational_rag_chain,
                                              stream_userinput)
 
 
@@ -26,20 +24,32 @@ st.sidebar.title("Tool Configs ⚙")
 
 
 with st.sidebar:
-        # Create a tab
-        tab = st.selectbox("Select Tool", ["InfoGenie", "FinInsights", "ClipNotes", "DBQuery", "PDFQuery"])
+    # Create a tab
+    tab = st.selectbox("Select Tool", ["InfoGenie", "FinInsights", "ClipNotes", "DBQuery", "PDFQuery"])
 
 
+add_url = False   
+
+remove_url = False
+
+if "remove_url" not in st.session_state:
+    st.session_state.remove_url = []
+    
 url = st.sidebar.text_input("Url: ")
-add_url= st.sidebar.button("add URL")
+with st.sidebar:
+    selection_remove = st.sidebar.toggle('Remove Url', ["Remove"])
+
+    if selection_remove:
+        remove_url = st.sidebar.button("Remove doc")
+        st.session_state.remove_url = [1]
+        
+    else:
+        add_url = st.sidebar.button("Add doc")
+        st.session_state.remove_url = []
 process_url_clicked = st.sidebar.button("Process URL")
 
-show_vector_db_clicked = st.sidebar.button("Show vectordb")
-document_add_remove_string = st.sidebar.text_input("Document to add/remove:")
 
-st.sidebar.empty()
-remove_document_clicked = st.sidebar.button("Remove doc")
-add_document_clicked = st.sidebar.button("Add doc")
+
 
 
 if tab == "InfoGenie":
@@ -86,53 +96,84 @@ if tab == "FinInsights":
     if "vector_store_fi" not in st.session_state:
         st.session_state.vector_store_fi = []
 
-        
     print(st.session_state)
+    
     if add_url:
         if url and url not in st.session_state.urls_history:
             st.session_state.urls.append(url)
             st.session_state.urls_history.append(url)
         with st.popover("Show Urls"):
             st.markdown(st.session_state.urls)
-        print(st.session_state)       
             
+    if remove_url:
+        if url and url in st.session_state.urls_history: #Only remove if url as been added to store
+            st.session_state.urls.append(url)
+            st.session_state.urls_history.append(url)
+        with st.popover("Show Urls"):
+            st.markdown(st.session_state.urls)
+            print(st.session_state)
+        
     
     if process_url_clicked:
-        with st.status("Processing URLs...", expanded=True) as status:
-            
-            #Load data
-            st.write("Data Loading...Started...✅✅✅")
-            docs = load_url(st.session_state.urls)
-            
-            #Split data into chunks
-            st.write("Text Splitting...Started...✅✅✅")
-            chunks = split_docs(docs)
-            
-            #Create embeddings for chunks and store in vectorDB(FAISS, Chroma)
-            st.write("Embedding Vector Started Building...✅✅✅")
-            
-            if not st.session_state.vector_store_fi: #Check if empty and initialize for the first time
-                st.session_state.vector_store_fi = create_save_return_vector_store(chunks)
+        if len(st.session_state.remove_url) == 1:
+            with st.status("Removing document...", expanded=True) as status:
                 
-            
-            else: # vector_store_fi already exist, merge new documents
-                st.write("Updating Vector Database...✅✅✅")
-                st.session_state.vector_store_fi = merge_save_return_vector_store(chunks, st.session_state.vector_store_fi)
+                vectordb_file_path = "faiss_index_hf.pkl"
+                v_dict = st.session_state.vector_store_fi.docstore._dict
+                data_rows = []
+                for chunk_id in v_dict.keys():
+                    doc_name = v_dict[chunk_id].metadata["source"]
+                    data_rows.append({"chunk_id": chunk_id, "document": doc_name})
+                vector_store_df_with_chunk_id = pd.DataFrame(data_rows)
+                st.write(vector_store_df_with_chunk_id)
+                conditions = []
+                for url in st.session_state.urls:
+                    conditions.append(vector_store_df_with_chunk_id['document'] == url)
+
+                combined_condition = conditions[0]
+                for condition in conditions[1:]:
+                    combined_condition |= condition #comb_cond= comb_cond | cond
+
+                    # Apply the combined condition to filter `vector_df`
+                filtered_vector_store_df = vector_store_df_with_chunk_id[combined_condition]
+                chunk_list = filtered_vector_store_df["chunk_id"].tolist()
+                #with st.container():
+                    #st.write(chunk_list)
+                st.session_state.vector_store_fi.delete(chunk_list)
+                time.sleep(2)
+                st.session_state.vector_store_fi.save_local(vectordb_file_path)
+                st.session_state.urls = []
+
+
+        elif not st.session_state.remove_url:
+            with st.status("Processing URLs...", expanded=True) as status:
+                
+                #Load data
+                st.write("Data Loading...Started...✅✅✅")
+                docs = load_url(st.session_state.urls)
+                
+                #Split data into chunks
+                st.write("Text Splitting...Started...✅✅✅")
+                chunks = split_docs(docs)
+                
+                #Create embeddings for chunks and store in vectorDB(FAISS, Chroma)
+                st.write("Embedding Vector Started Building...✅✅✅")
+                
+                if not st.session_state.vector_store_fi: #Check if empty and initialize for the first time
+                    st.session_state.vector_store_fi = create_save_return_vector_store(chunks)
                     
                 
-            status.update(label="Processing Completed!", state="complete", expanded=False)
+                else: # vector_store_fi already exist, merge new documents
+                    st.write("Updating Vector Database...✅✅✅")
+                    st.session_state.vector_store_fi = merge_save_return_vector_store(chunks, st.session_state.vector_store_fi)
+                        
+                    
+                status.update(label="Processing Completed!", state="complete", expanded=False)
+                
+                st.session_state.urls = [] # Clear temp urls list after vector_store has been initialized
+        
             
-            #Check if st.session_state.chat_history_fi = [] empty list
-            # if not st.session_state.chat_history_fi:
-            #     st.session_state.chat_history_fi = [
-            #         AIMessage(content="Hello, I am a bot. How can I help you?"),
-            #     ]
-            
-            
-            st.session_state.urls = [] # Clear temp urls list after vector_store has been initialized
-
-            print(st.session_state)
-            
+                
     if not isinstance(st.session_state.vector_store_fi, list): # If vector_store is not empty
         store_df = populate_vector_store(st.session_state.vector_store_fi)
         display_vector_store(store_df)
@@ -150,22 +191,16 @@ if tab == "FinInsights":
     if user_query is not None and user_query != "":
         if len(st.session_state.chat_history_fi) == 1:
             st.session_state.chat_history_fi.pop()
+        
+        with st.chat_message("Human", avatar="🤗"):
+            st.markdown(user_query)
             
         response = handle_userinput(user_query)
         st.session_state.chat_history_fi.append(HumanMessage(content=user_query))
         st.session_state.chat_history_fi.append(AIMessage(content=response))
         
-        with st.chat_message("Human", avatar="🤗"):
-            st.markdown(user_query)
-         
         with st.chat_message("AI", avatar="🤖"):
             st.write_stream(stream_userinput(response))
-    
-    
-        print(st.session_state)
-    
-                
-
     
 
 

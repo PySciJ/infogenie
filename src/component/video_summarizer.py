@@ -14,7 +14,7 @@ def extract_transcript_details(video_url):
         for i in transcript_text: 
             transcript += "" + i['text'] # extract only the text portion of the transcript
         
-        return transcrip
+        return transcript
     except Exception as e:
         raise e
 
