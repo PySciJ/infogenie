@@ -8,28 +8,22 @@ from langchain_core.messages import HumanMessage, AIMessage
 from src.component.article_extractor import (load_url, 
                                              split_docs, 
                                              create_save_return_vector_store,
-                                             merge_save_return_vector_store, 
+                                             merge_save_return_vector_store,
+                                             remove_doc_update_vector_store, 
                                              handle_userinput,
                                              populate_vector_store,
                                              display_vector_store,
                                              stream_userinput)
 
 
+
 st.set_page_config(page_title="InfoGenie", page_icon="👀")
-
-
-# infogenie_tab, fininsights_tab, clipnotes_tab, dbquery_tab = st.tabs(["InfoGenie", "FinInsights", "VidSum", "DBQuery"])
-
 st.sidebar.title("Tool Configs ⚙")
 
-
 with st.sidebar:
-    # Create a tab
-    tab = st.selectbox("Select Tool", ["InfoGenie", "FinInsights", "ClipNotes", "DBQuery", "PDFQuery"])
-
+    tab = st.selectbox("Select Tool", ["InfoGenie", "FinInsights", "ClipNotes", "DBQuery"])
 
 add_url = False   
-
 remove_url = False
 
 if "remove_url" not in st.session_state:
@@ -37,7 +31,7 @@ if "remove_url" not in st.session_state:
     
 url = st.sidebar.text_input("Url: ")
 with st.sidebar:
-    selection_remove = st.sidebar.toggle('Remove Url', ["Remove"])
+    selection_remove = st.sidebar.toggle('Remove Url', value=False)
 
     if selection_remove:
         remove_url = st.sidebar.button("Remove doc")
@@ -46,11 +40,11 @@ with st.sidebar:
     else:
         add_url = st.sidebar.button("Add doc")
         st.session_state.remove_url = []
+        
 process_url_clicked = st.sidebar.button("Process URL")
 
 
-
-
+### InfoGenie ###
 
 if tab == "InfoGenie":
     st.title("InfoGenie👀")
@@ -79,6 +73,9 @@ if tab == "InfoGenie":
             
         st.session_state.chat_history.append(AIMessage(ai_response))
 
+
+### FinInsights ###
+
 if tab == "FinInsights":
     st.title("FinInsights 📈")
     
@@ -106,7 +103,7 @@ if tab == "FinInsights":
             st.markdown(st.session_state.urls)
             
     if remove_url:
-        if url and url in st.session_state.urls_history: #Only remove if url as been added to store
+        if url and url in st.session_state.urls_history and url not in st.session_state.urls: #Only remove if url as been added to store
             st.session_state.urls.append(url)
             st.session_state.urls_history.append(url)
         with st.popover("Show Urls"):
@@ -118,33 +115,10 @@ if tab == "FinInsights":
         if len(st.session_state.remove_url) == 1:
             with st.status("Removing document...", expanded=True) as status:
                 
-                vectordb_file_path = "faiss_index_hf.pkl"
-                v_dict = st.session_state.vector_store_fi.docstore._dict
-                data_rows = []
-                for chunk_id in v_dict.keys():
-                    doc_name = v_dict[chunk_id].metadata["source"]
-                    data_rows.append({"chunk_id": chunk_id, "document": doc_name})
-                vector_store_df_with_chunk_id = pd.DataFrame(data_rows)
-                st.write(vector_store_df_with_chunk_id)
-                conditions = []
-                for url in st.session_state.urls:
-                    conditions.append(vector_store_df_with_chunk_id['document'] == url)
-
-                combined_condition = conditions[0]
-                for condition in conditions[1:]:
-                    combined_condition |= condition #comb_cond= comb_cond | cond
-
-                    # Apply the combined condition to filter `vector_df`
-                filtered_vector_store_df = vector_store_df_with_chunk_id[combined_condition]
-                chunk_list = filtered_vector_store_df["chunk_id"].tolist()
-                #with st.container():
-                    #st.write(chunk_list)
-                st.session_state.vector_store_fi.delete(chunk_list)
-                time.sleep(2)
-                st.session_state.vector_store_fi.save_local(vectordb_file_path)
-                st.session_state.urls = []
-
-
+                st.session_state.vector_store_fi = remove_doc_update_vector_store(st.session_state.urls, st.session_state.vector_store_fi)
+                status.update(label="Documents Removed!", state="complete", expanded=False)               
+                st.session_state.urls = [] # Clear temp urls list
+                
         elif not st.session_state.remove_url:
             with st.status("Processing URLs...", expanded=True) as status:
                 
@@ -203,7 +177,7 @@ if tab == "FinInsights":
             st.write_stream(stream_userinput(response))
     
 
-
+### ClipNotes ###
 
 if tab == "ClipNotes":
     st.title("ClipNotes 🎞")
@@ -220,6 +194,8 @@ if tab == "ClipNotes":
         st.markdown("## 🧾Summary Content:")
         st.write(summary)
         
+### DBQuery ###        
+        
 if tab == "DBQuery":
     st.title("DBQuery 🔍")
     question = st.text_input("Question: ")
@@ -231,8 +207,7 @@ if tab == "DBQuery":
         st.header("Answer")
         st.write(response)
 
-if tab == "PDFQuery":
-    st.title("PDFQuery 📑")
+
         
 
 

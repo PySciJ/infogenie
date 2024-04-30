@@ -1,4 +1,3 @@
-import pickle
 import time
 import pandas as pd
 from langchain_community.embeddings import HuggingFaceInstructEmbeddings
@@ -12,7 +11,7 @@ from langchain.chains import ConversationalRetrievalChain
 from langchain_google_vertexai import ChatVertexAI
 from langchain.memory import ConversationBufferMemory
 from langchain_google_genai import ChatGoogleGenerativeAI
-import tiktoken
+
 
 import streamlit as st
 from langchain_core.messages import HumanMessage, AIMessage
@@ -69,7 +68,36 @@ def merge_save_return_vector_store(chunks, vector_store):
     vector_store.save_local(vectordb_file_path)
     
     return vector_store
-            
+
+def remove_doc_update_vector_store(urls, vector_store):
+    vectordb_file_path = "faiss_index_hf.pkl"
+    v_dict = vector_store.docstore._dict
+    data_rows = []
+    for chunk_id in v_dict.keys():
+        doc_name = v_dict[chunk_id].metadata["source"]
+        data_rows.append({"chunk_id": chunk_id, "document": doc_name})
+    vector_store_df_with_chunk_id = pd.DataFrame(data_rows)
+    st.write(vector_store_df_with_chunk_id)
+    conditions = []
+    for url in urls:
+        conditions.append(vector_store_df_with_chunk_id['document'] == url)
+
+    combined_condition = conditions[0]
+    for condition in conditions[1:]:
+        combined_condition |= condition #comb_cond= comb_cond | cond
+
+        # Apply the combined condition to filter `vector_df`
+    filtered_vector_store_df = vector_store_df_with_chunk_id[combined_condition]
+    chunk_list = filtered_vector_store_df["chunk_id"].tolist()
+    #with st.container():
+        #st.write(chunk_list)
+    vector_store.delete(chunk_list)
+    time.sleep(1)
+    vector_store.save_local(vectordb_file_path)
+
+    
+    return vector_store
+
 def get_context_retriever_chain(vector_store): # Retrieves relevant documents to chat_history and current user question
     # chat_model = ChatVertexAI(model="text-bison@001", google_api_key=os.getenv("GOOGLE_API_KEY"))
     chat_model = ChatGoogleGenerativeAI(model="gemini-pro", convert_system_message_to_human=True)
@@ -91,7 +119,7 @@ def get_context_retriever_chain(vector_store): # Retrieves relevant documents to
         ("user", "{input}"),
         ("user", "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation")
     ])
-    retriever_chain = create_history_aware_retriever(chat_model, vector_store.as_retriever(search_type="mmr"), prompt)
+    retriever_chain = create_history_aware_retriever(chat_model, vector_store.as_retriever(search_type="similarity_score_threshold", search_kwargs={"score_threshold": 0.5}), prompt)
     
     return retriever_chain
 
