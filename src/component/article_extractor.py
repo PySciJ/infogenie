@@ -99,44 +99,45 @@ def remove_doc_update_vector_store(urls, vector_store):
     return vector_store
 
 def get_context_retriever_chain(vector_store): # Retrieves relevant documents to chat_history and current user question
-    # chat_model = ChatVertexAI(model="text-bison@001", google_api_key=os.getenv("GOOGLE_API_KEY"))
+   
     chat_model = ChatGoogleGenerativeAI(model="gemini-pro", convert_system_message_to_human=True)
+    retriever = vector_store.as_retriever(search_type="mmr")
     
-    # memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    # vectordb_file_path = "faiss_index_hf.pkl"
-    # # instructor_embeddings = HuggingFaceInstructEmbeddings()
-    # # vector_store = FAISS.load_local(vectordb_file_path, instructor_embeddings, allow_dangerous_deserialization=True)
+    contextualize_q_system_prompt = """Given a chat history and the latest user question \
+    which might reference context in the chat history, formulate a standalone question \
+    which can be understood without the chat history. Do NOT answer the question, \
+    just reformulate it if needed and otherwise return it as is."""
     
-    # conversation_chain = ConversationalRetrievalChain.from_llm(
-    #     llm=chat_model,
-    #     retriever=vector_store.as_retriever(search_type="mmr"),
-    #     memory=memory
-    # )
-    # return conversation_chain
-    
-    prompt = ChatPromptTemplate.from_messages([
+    contextualize_q_prompt = ChatPromptTemplate.from_messages([
+        ("system", contextualize_q_system_prompt),
         MessagesPlaceholder(variable_name="chat_history_fi"),
-        ("user", "{input}"),
-        ("user", "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation")
+        ("human", "{input}"),
+        # ("user", "Given the above conversation, generate a search query to look up in order to get information relevant to the conversation")
     ])
-    retriever_chain = create_history_aware_retriever(chat_model, vector_store.as_retriever(search_type="similarity_score_threshold", search_kwargs={"score_threshold": 0.5}), prompt)
+    # Create a chain that takes conversation history and returns documents.
+    history_aware_retriever = create_history_aware_retriever(chat_model, retriever, contextualize_q_prompt)
     
-    return retriever_chain
+    return history_aware_retriever
 
 
-def get_conversational_rag_chain(retriever_chain):
+def get_conversational_rag_chain(history_aware_retriever):
     chat_model = ChatGoogleGenerativeAI(model="gemini-pro", convert_system_message_to_human=True)
     
-    # SystemMessage: Message for priming AI behavior, usually passed in as the first of a sequence of input messages.
+    qa_system_prompt = """You are an assistant for question-answering tasks. \
+    Use the following pieces of retrieved context to answer the question. \
+    If you don't know the answer, just say that you don't know. \
+        
+    {context}"""
+    
     prompt = ChatPromptTemplate.from_messages([
-      ("system", "Answer the user's questions based on the below context:\n\n{context}"),
+      ("system", qa_system_prompt),  # SystemMessage: Message for priming AI behavior, usually passed in as the first of a sequence of input messages.
       MessagesPlaceholder(variable_name="chat_history_fi"),
-      ("user", "{input}"),
+      ("human", "{input}"),
     ])
-    
+   
     stuff_documents_chain = create_stuff_documents_chain(chat_model, prompt) # Create a chain that includes the context(relevant documents)
-    
-    return create_retrieval_chain(retriever_chain, stuff_documents_chain)
+                                                                    # prompt: Prompt template. Must contain input variable "context", which will be used for passing in the formatted documents.
+    return create_retrieval_chain(history_aware_retriever, stuff_documents_chain)
 
 
 def handle_userinput(user_query):

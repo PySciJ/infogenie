@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import time
+import os
+from dotenv import load_dotenv
 from src.component.sql_querier import get_few_shot_db_chain 
 from src.component.video_summarizer import extract_transcript_details, google_gemini_text_summarization
 from src.component.chat import get_response
@@ -15,7 +17,8 @@ from src.component.article_extractor import (load_url,
                                              display_vector_store,
                                              stream_userinput)
 
-
+os.environ["LANGCHAIN_TRACING_V2"]="true"
+os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
 
 st.set_page_config(page_title="InfoGenie", page_icon="👀")
 st.sidebar.title("Tool Configs ⚙")
@@ -23,25 +26,6 @@ st.sidebar.title("Tool Configs ⚙")
 with st.sidebar:
     tab = st.selectbox("Select Tool", ["InfoGenie", "FinInsights", "ClipNotes", "DBQuery"])
 
-add_url = False   
-remove_url = False
-
-if "remove_url" not in st.session_state:
-    st.session_state.remove_url = []
-    
-url = st.sidebar.text_input("Url: ")
-with st.sidebar:
-    selection_remove = st.sidebar.toggle('Remove Url', value=False)
-
-    if selection_remove:
-        remove_url = st.sidebar.button("Remove doc")
-        st.session_state.remove_url = [1]
-        
-    else:
-        add_url = st.sidebar.button("Add doc")
-        st.session_state.remove_url = []
-        
-process_url_clicked = st.sidebar.button("Process URL")
 
 
 ### InfoGenie ###
@@ -78,6 +62,26 @@ if tab == "InfoGenie":
 
 if tab == "FinInsights":
     st.title("FinInsights 📈")
+    
+    add_url = False   
+    remove_url = False
+
+    if "remove_url" not in st.session_state:
+        st.session_state.remove_url = []
+        
+    url = st.sidebar.text_input("Url: ")
+    with st.sidebar:
+        selection_remove = st.sidebar.toggle('Remove Url', value=False)
+
+        if selection_remove:
+            remove_url = st.sidebar.button("Remove doc")
+            st.session_state.remove_url = [1]
+            
+        else:
+            add_url = st.sidebar.button("Add doc")
+            st.session_state.remove_url = []
+        
+    process_url_clicked = st.sidebar.button("Process URL")
     
     print(st.session_state)
         
@@ -198,14 +202,33 @@ if tab == "ClipNotes":
         
 if tab == "DBQuery":
     st.title("DBQuery 🔍")
-    question = st.text_input("Question: ")
     
-    if question:
+    
+    if "chat_history_db" not in st.session_state:
+        st.session_state.chat_history_db = []
+    
+        
+    for message in st.session_state.chat_history_db:
+        if isinstance(message, AIMessage):
+            with st.chat_message("AI", avatar="🤖"):
+                st.write(message.content)
+        elif isinstance(message, HumanMessage):
+            with st.chat_message("Human", avatar="🤗"):
+                st.write(message.content)  
+    
+    question = st.chat_input("Question")
+    if question is not None and question != "":
+        
+        with st.chat_message("Human", avatar="🤗"):
+            st.markdown(question)
+            
         chain = get_few_shot_db_chain()
         response = chain.run(question)
-
-        st.header("Answer")
-        st.write(response)
+        st.session_state.chat_history_db.append(HumanMessage(content=question))
+        st.session_state.chat_history_db.append(AIMessage(content=response))
+        
+        with st.chat_message("AI", avatar="🤖"):
+            st.markdown(response)
 
 
         
